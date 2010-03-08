@@ -141,9 +141,6 @@ finalize (GObject *obj)
 
     g_omx_core_free (self->gomx);
 
-    g_free (self->omx_component);
-    g_free (self->omx_library);
-
     G_OBJECT_CLASS (parent_class)->finalize (obj);
 }
 
@@ -161,7 +158,7 @@ render (GstBaseSink *gst_base,
     gomx = self->gomx;
 
     GST_LOG_OBJECT (self, "begin");
-    GST_LOG_OBJECT (self, "gst_buffer: size=%lu", GST_BUFFER_SIZE (buf));
+    GST_LOG_OBJECT (self, "gst_buffer: size=%u", GST_BUFFER_SIZE (buf));
 
     GST_LOG_OBJECT (self, "state: %d", gomx->omx_state);
 
@@ -287,32 +284,6 @@ handle_event (GstBaseSink *gst_base,
 }
 
 static void
-set_property (GObject *obj,
-              guint prop_id,
-              const GValue *value,
-              GParamSpec *pspec)
-{
-    GstOmxBaseSink *self;
-
-    self = GST_OMX_BASE_SINK (obj);
-
-    switch (prop_id)
-    {
-        case ARG_COMPONENT_NAME:
-            g_free (self->omx_component);
-            self->omx_component = g_value_dup_string (value);
-            break;
-        case ARG_LIBRARY_NAME:
-            g_free (self->omx_library);
-            self->omx_library = g_value_dup_string (value);
-            break;
-        default:
-            G_OBJECT_WARN_INVALID_PROPERTY_ID (obj, prop_id, pspec);
-            break;
-    }
-}
-
-static void
 get_property (GObject *obj,
               guint prop_id,
               GValue *value,
@@ -325,10 +296,10 @@ get_property (GObject *obj,
     switch (prop_id)
     {
         case ARG_COMPONENT_NAME:
-            g_value_set_string (value, self->omx_component);
+            g_value_set_string (value, self->gomx->component_name);
             break;
         case ARG_LIBRARY_NAME:
-            g_value_set_string (value, self->omx_library);
+            g_value_set_string (value, self->gomx->library_name);
             break;
         default:
             G_OBJECT_WARN_INVALID_PROPERTY_ID (obj, prop_id, pspec);
@@ -360,18 +331,17 @@ type_class_init (gpointer g_class,
 
     /* Properties stuff */
     {
-        gobject_class->set_property = set_property;
         gobject_class->get_property = get_property;
 
         g_object_class_install_property (gobject_class, ARG_COMPONENT_NAME,
                                          g_param_spec_string ("component-name", "Component name",
                                                               "Name of the OpenMAX IL component to use",
-                                                              NULL, G_PARAM_READWRITE));
+                                                              NULL, G_PARAM_READABLE | G_PARAM_STATIC_STRINGS));
 
         g_object_class_install_property (gobject_class, ARG_LIBRARY_NAME,
                                          g_param_spec_string ("library-name", "Library name",
                                                               "Name of the OpenMAX IL implementation library to use",
-                                                              NULL, G_PARAM_READWRITE));
+                                                              NULL, G_PARAM_READABLE | G_PARAM_STATIC_STRINGS));
     }
 }
 
@@ -420,7 +390,7 @@ activate_push (GstPad *pad,
 static inline gboolean
 omx_init (GstOmxBaseSink *self)
 {
-    g_omx_core_init (self->gomx, self->omx_library, self->omx_component);
+    g_omx_core_init (self->gomx);
 
     if (self->gomx->omx_error)
         return FALSE;
@@ -460,22 +430,8 @@ type_instance_init (GTypeInstance *instance,
 
     GST_LOG_OBJECT (self, "begin");
 
-    /* GOmx */
-    {
-        GOmxCore *gomx;
-        self->gomx = gomx = g_omx_core_new ();
-        gomx->object = self;
-    }
-
-    {
-        const char *tmp;
-        tmp = g_type_get_qdata (G_OBJECT_CLASS_TYPE (g_class),
-                                g_quark_from_static_string ("library-name"));
-        self->omx_library = g_strdup (tmp);
-        tmp = g_type_get_qdata (G_OBJECT_CLASS_TYPE (g_class),
-                                g_quark_from_static_string ("component-name"));
-        self->omx_component = g_strdup (tmp);
-    }
+    self->gomx = g_omx_core_new (self);
+    gstomx_get_component_info (self->gomx, G_TYPE_FROM_CLASS (g_class));
 
     {
         GstPad *sinkpad;

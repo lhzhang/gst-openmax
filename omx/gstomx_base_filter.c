@@ -40,11 +40,11 @@ log_buffer (GstOmxBaseFilter *self,
             OMX_BUFFERHEADERTYPE *omx_buffer)
 {
     GST_DEBUG_OBJECT (self, "omx_buffer: "
-                      "size=%" G_GUINT32_FORMAT ", "
-                      "len=%" G_GUINT32_FORMAT ", "
-                      "flags=%" G_GUINT32_FORMAT ", "
-                      "offset=%" G_GUINT32_FORMAT ", "
-                      "timestamp=%" G_GUINT64_FORMAT,
+                      "size=%lu, "
+                      "len=%lu, "
+                      "flags=%lu, "
+                      "offset=%lu, "
+                      "timestamp=%lld",
                       omx_buffer->nAllocLen, omx_buffer->nFilledLen, omx_buffer->nFlags,
                       omx_buffer->nOffset, omx_buffer->nTimeStamp);
 }
@@ -115,7 +115,7 @@ change_state (GstElement *element,
     switch (transition)
     {
         case GST_STATE_CHANGE_NULL_TO_READY:
-            g_omx_core_init (core, self->omx_library, self->omx_component);
+            g_omx_core_init (core);
             if (core->omx_state != OMX_StateLoaded)
             {
                 ret = GST_STATE_CHANGE_FAILURE;
@@ -184,9 +184,6 @@ finalize (GObject *obj)
 
     g_omx_core_free (self->gomx);
 
-    g_free (self->omx_component);
-    g_free (self->omx_library);
-
     g_mutex_free (self->ready_lock);
 
     G_OBJECT_CLASS (parent_class)->finalize (obj);
@@ -204,14 +201,6 @@ set_property (GObject *obj,
 
     switch (prop_id)
     {
-        case ARG_COMPONENT_NAME:
-            g_free (self->omx_component);
-            self->omx_component = g_value_dup_string (value);
-            break;
-        case ARG_LIBRARY_NAME:
-            g_free (self->omx_library);
-            self->omx_library = g_value_dup_string (value);
-            break;
         case ARG_USE_TIMESTAMPS:
             self->use_timestamps = g_value_get_boolean (value);
             break;
@@ -234,10 +223,10 @@ get_property (GObject *obj,
     switch (prop_id)
     {
         case ARG_COMPONENT_NAME:
-            g_value_set_string (value, self->omx_component);
+            g_value_set_string (value, self->gomx->component_name);
             break;
         case ARG_LIBRARY_NAME:
-            g_value_set_string (value, self->omx_library);
+            g_value_set_string (value, self->gomx->library_name);
             break;
         case ARG_USE_TIMESTAMPS:
             g_value_set_boolean (value, self->use_timestamps);
@@ -271,17 +260,17 @@ type_class_init (gpointer g_class,
         g_object_class_install_property (gobject_class, ARG_COMPONENT_NAME,
                                          g_param_spec_string ("component-name", "Component name",
                                                               "Name of the OpenMAX IL component to use",
-                                                              NULL, G_PARAM_READWRITE));
+                                                              NULL, G_PARAM_READABLE | G_PARAM_STATIC_STRINGS));
 
         g_object_class_install_property (gobject_class, ARG_LIBRARY_NAME,
                                          g_param_spec_string ("library-name", "Library name",
                                                               "Name of the OpenMAX IL implementation library to use",
-                                                              NULL, G_PARAM_READWRITE));
+                                                              NULL, G_PARAM_READABLE | G_PARAM_STATIC_STRINGS));
 
         g_object_class_install_property (gobject_class, ARG_USE_TIMESTAMPS,
                                          g_param_spec_boolean ("use-timestamps", "Use timestamps",
                                                                "Whether or not to use timestamps",
-                                                               TRUE, G_PARAM_READWRITE));
+                                                               TRUE, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
     }
 }
 
@@ -450,7 +439,7 @@ output_loop (gpointer data)
                 }
                 else
                 {
-                    GST_WARNING_OBJECT (self, "couldn't allocate buffer of size %" G_GUINT32_FORMAT,
+                    GST_WARNING_OBJECT (self, "couldn't allocate buffer of size %lu",
                                         omx_buffer->nFilledLen);
                 }
             }
@@ -897,12 +886,8 @@ type_instance_init (GTypeInstance *instance,
 
     self->use_timestamps = TRUE;
 
-    /* GOmx */
-    {
-        GOmxCore *gomx;
-        self->gomx = gomx = g_omx_core_new ();
-        gomx->object = self;
-    }
+    self->gomx = g_omx_core_new (self);
+    gstomx_get_component_info (self->gomx, G_TYPE_FROM_CLASS (g_class));
 
     self->ready_lock = g_mutex_new ();
 
@@ -921,16 +906,6 @@ type_instance_init (GTypeInstance *instance,
 
     gst_element_add_pad (GST_ELEMENT (self), self->sinkpad);
     gst_element_add_pad (GST_ELEMENT (self), self->srcpad);
-
-    {
-        const char *tmp;
-        tmp = g_type_get_qdata (G_OBJECT_CLASS_TYPE (g_class),
-                                g_quark_from_static_string ("library-name"));
-        self->omx_library = g_strdup (tmp);
-        tmp = g_type_get_qdata (G_OBJECT_CLASS_TYPE (g_class),
-                                g_quark_from_static_string ("component-name"));
-        self->omx_component = g_strdup (tmp);
-    }
 
     GST_LOG_OBJECT (self, "end");
 }
